@@ -1,88 +1,166 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <base target="_top">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <style>
-    *{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;background:#eff5fc;color:#102c54}
-    main{max-width:580px;margin:auto;padding:18px}h1{margin:12px 0 5px;font-size:32px}h2{font-size:22px}
-    .muted{color:#526a85;font-size:14px}.card{background:white;padding:18px;border-radius:16px;margin:14px 0;box-shadow:0 2px 12px #17345513}
-    input,button{width:100%;padding:14px;margin:7px 0;border-radius:9px;font-size:16px}
-    input{border:1px solid #b7cbe3}button{border:0;background:#0757ac;color:white;font-weight:bold;cursor:pointer}
-    button.secondary{background:#365271}button:disabled{opacity:.55}#reader{width:100%;overflow:hidden}
-    #message{white-space:pre-wrap;padding:12px;border-radius:9px;display:none}.ok{background:#dcf6e3}.err{background:#ffe0df}
-    #stats{white-space:pre-wrap;line-height:1.6}li{padding:4px 0}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HÍDRICA - TIPÓN</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#edf4fc;font-family:Arial,sans-serif;color:#102b50}
+main{max-width:560px;margin:auto;padding:18px}
+h1{font-size:28px}
+.card{background:white;border-radius:16px;padding:18px;margin:15px 0}
+button{width:100%;padding:16px;margin:8px 0;border:0;border-radius:10px;background:#0755b2;color:white;font-size:17px;font-weight:bold}
+button.secondary{background:#345675}
+button:disabled{opacity:.5}
+input{width:100%;padding:15px;border:1px solid #adc2dc;border-radius:10px;font-size:16px}
+video{width:100%;display:block;background:#111;border-radius:12px}
+#cameraBox{position:relative;display:none;overflow:hidden}
+#cameraBox:after{content:"";position:absolute;inset:15%;border:4px solid #44d36e;border-radius:12px;pointer-events:none}
+#status{padding:14px;border-radius:10px;background:#e8eef7;white-space:pre-wrap;line-height:1.5}
+.ok{background:#d9f7e4!important}
+.err{background:#ffe0e0!important}
+.small{font-size:14px;color:#526a85}
+</style>
 </head>
-<body><main>
-  <h1>HÍDRICA · TIPÓN</h1><p class="muted">Control de viaje: IDA / VUELTA · Solo encargados autorizados</p>
-  <section class="card"><label for="pin">PIN de encargado</label><input id="pin" type="password" placeholder="PIN de acceso" autocomplete="off">
-    <button class="secondary" onclick="verResumen()">Ver resumen</button><div id="stats"></div>
-  </section>
-  <section class="card"><h2>Escanear boleto</h2><div id="reader"></div>
-    <button id="start" onclick="abrirCamara()">Abrir cámara y escanear</button>
-    <button class="secondary" onclick="cerrarCamara()">Cerrar cámara</button>
-    <p class="muted">Si usas el escáner móvil independiente, el código aparecerá aquí. También puedes pegarlo manualmente:</p>
-    <input id="codigo" placeholder="HID-...-IDA o HID-...-VUELTA" autocapitalize="characters">
-    <button id="submit" onclick="registrarCodigo()">Registrar código</button>
-    <div id="message" role="status" aria-live="polite"></div>
-  </section>
-  <section class="card"><h2>Pendientes de retorno</h2><ul id="pendientes"></ul></section>
+<body>
+<main>
+<h1>HÍDRICA – TIPÓN</h1>
+<p class="small">Control de asistencia de estudiantes</p>
+
+<section class="card">
+<h2>Escanear boleto QR</h2>
+<div id="cameraBox">
+<video id="video" autoplay muted playsinline></video>
+</div>
+<canvas id="canvas" style="display:none"></canvas>
+<button id="start" onclick="startCamera()">Abrir cámara y escanear</button>
+<button class="secondary" onclick="stopCamera()">Cerrar cámara</button>
+<p id="status">Presiona «Abrir cámara y escanear».</p>
+</section>
+
+<section class="card">
+<h2>Código del estudiante</h2>
+<p class="small">Al reconocer el QR, aparecerá aquí.</p>
+<input id="codigo" placeholder="HID-...-IDA o HID-...-VUELTA" autocomplete="off">
+<button onclick="continuar()">Continuar a registro</button>
+<button class="secondary" onclick="verResumen()">Ver resumen</button>
+</section>
 </main>
+
 <script>
-  let scanner = null, ocupado = false, ultimo = '';
-  // Acepta el QR leído por el escáner móvil externo, sin registrar sin confirmación.
-  window.addEventListener('DOMContentLoaded', () => {
-    const codigo = new URLSearchParams(location.search).get('codigo');
-    if (codigo && /^HID-[A-F0-9]{16}-(IDA|VUELTA)$/i.test(codigo)) {
-      document.getElementById('codigo').value = codigo.toUpperCase();
-      aviso('Boleto recibido. Introduce el PIN y pulsa Registrar código.', true);
-      document.getElementById('pin').focus();
-    }
+const APP_URL =
+'https://script.google.com/macros/s/AKfycbwprYOsJB2mwG7RWAkysyZg0CCdVyMKNQje8VKlBpQNuJrr51-hJvj4aZP29ifTtVISFg/exec';
+
+const $ = id => document.getElementById(id);
+let stream = null;
+let running = false;
+let frameId = null;
+let lastScan = 0;
+
+function mensaje(texto,tipo=''){
+ const e=$('status');
+ e.textContent=texto;
+ e.className=tipo;
+}
+
+function validar(c){
+ return /^HID-[A-F0-9]{16}-(IDA|VUELTA)$/.test(c);
+}
+
+async function startCamera(){
+ if(running)return;
+ if(typeof jsQR!=='function'){
+  mensaje('No se cargó el lector QR. Revisa Internet.','err');
+  return;
+ }
+ try{
+  $('codigo').value='';
+  stream=await navigator.mediaDevices.getUserMedia({
+   audio:false,
+   video:{
+    facingMode:{ideal:'environment'},
+    width:{ideal:1280},
+    height:{ideal:720}
+   }
   });
-  const el = id => document.getElementById(id);
-  function aviso(s, correcto=false){let m=el('message');m.style.display='block';m.className=correcto?'ok':'err';m.textContent=s;}
-  function pin(){return el('pin').value.trim();}
-  function error(e){aviso(e && e.message ? e.message : String(e || 'Error desconocido'));}
-  function verResumen(){
-    if(!pin()) return aviso('Introduce el PIN.');
-    google.script.run.withSuccessHandler(d=>{
-      el('stats').textContent=`Total: ${d.total} | IDA: ${d.ida} | VUELTA: ${d.vuelta} | Sin retornar: ${d.pendientesRetorno.length}`;
-      el('pendientes').replaceChildren();
-      d.pendientesRetorno.forEach(x=>{const li=document.createElement('li');li.textContent=x.numero+' - '+x.nombre;el('pendientes').appendChild(li);});
-      aviso('Resumen actualizado.',true);
-    }).withFailureHandler(error).resumen(pin());
-  }
-  function registrarCodigo(){registrar(el('codigo').value.trim());}
-  function registrar(codigo){
-    if(ocupado)return;
-    if(!pin())return aviso('Introduce el PIN.');
-    if(!codigo)return aviso('Escanea o escribe un código.');
-    ocupado=true;el('submit').disabled=true;
-    google.script.run.withSuccessHandler(d=>{
-      ocupado=false;el('submit').disabled=false;
-      aviso(`${d.nombre}\n${d.tipo}: ${d.mensaje}`,d.ok);
-      if(d.ok){el('codigo').value='';verResumen();}
-    }).withFailureHandler(e=>{ocupado=false;el('submit').disabled=false;error(e);}).registrar(pin(),codigo);
-  }
-  async function abrirCamara(){
-    if(scanner)return;
-    if(!pin())return aviso('Introduce el PIN antes de escanear.');
-    if(typeof Html5Qrcode==='undefined')return aviso('No se cargó la biblioteca del lector QR. Comprueba la conexión.');
-    if(!window.isSecureContext)return aviso('La cámara necesita una página HTTPS segura.');
-    try{
-      scanner=new Html5Qrcode('reader');
-      await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:230,height:230}},texto=>{
-        if(ocupado||texto===ultimo)return;
-        ultimo=texto;el('codigo').value=texto;registrar(texto);
-        setTimeout(()=>{ultimo='';},3000);
-      },()=>{});
-      aviso('Cámara activa. Enfoca el QR de IDA o VUELTA.',true);
-    }catch(e){scanner=null;error(e);}
-  }
-  async function cerrarCamara(){
-    if(!scanner)return;
-    try{await scanner.stop();scanner.clear();}catch(e){error(e);}finally{scanner=null;}
-  }
-</script></body></html>
+
+  const video=$('video');
+  video.srcObject=stream;
+  await video.play();
+  running=true;
+  lastScan=0;
+  $('cameraBox').style.display='block';
+  mensaje('Cámara activa. Enfoca un solo QR de IDA o VUELTA.');
+  frameId=requestAnimationFrame(leerQR);
+ }catch(e){
+  mensaje('Error de cámara: '+e.message,'err');
+  stopCamera();
+ }
+}
+
+function leerQR(tiempo){
+ if(!running)return;
+ frameId=requestAnimationFrame(leerQR);
+ if(tiempo-lastScan<100)return;
+ lastScan=tiempo;
+
+ const video=$('video');
+ if(video.readyState<2 || !video.videoWidth)return;
+
+ const canvas=$('canvas');
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});
+ canvas.width=video.videoWidth;
+ canvas.height=video.videoHeight;
+ ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+ const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
+ const result=jsQR(pixels.data,canvas.width,canvas.height,{
+  inversionAttempts:'attemptBoth'
+ });
+
+ if(!result)return;
+
+ const codigo=result.data.trim().toUpperCase();
+
+ if(!validar(codigo)){
+  mensaje('Se detectó un QR, pero no es un boleto HÍDRICA válido.','err');
+  return;
+ }
+
+ $('codigo').value=codigo;
+ mensaje('QR LEÍDO CORRECTAMENTE: '+codigo+
+ '\nAhora presiona «Continuar a registro».','ok');
+ stopCamera();
+}
+
+function stopCamera(){
+ running=false;
+ if(frameId!==null){
+  cancelAnimationFrame(frameId);
+  frameId=null;
+ }
+ if(stream){
+  stream.getTracks().forEach(t=>t.stop());
+  stream=null;
+ }
+ $('video').srcObject=null;
+ $('cameraBox').style.display='none';
+}
+
+function continuar(){
+ const codigo=$('codigo').value.trim().toUpperCase();
+ if(!validar(codigo)){
+  mensaje('Primero escanea un QR válido de HÍDRICA.','err');
+  return;
+ }
+ window.location.href=APP_URL+'?codigo='+encodeURIComponent(codigo);
+}
+
+function verResumen(){
+ window.location.href=APP_URL;
+}
+</script>
+</body>
+</html>
