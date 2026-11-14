@@ -1,166 +1,49 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HÍDRICA - TIPÓN</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<style>
-*{box-sizing:border-box}
-body{margin:0;background:#edf4fc;font-family:Arial,sans-serif;color:#102b50}
-main{max-width:560px;margin:auto;padding:18px}
-h1{font-size:28px}
-.card{background:white;border-radius:16px;padding:18px;margin:15px 0}
-button{width:100%;padding:16px;margin:8px 0;border:0;border-radius:10px;background:#0755b2;color:white;font-size:17px;font-weight:bold}
-button.secondary{background:#345675}
-button:disabled{opacity:.5}
-input{width:100%;padding:15px;border:1px solid #adc2dc;border-radius:10px;font-size:16px}
-video{width:100%;display:block;background:#111;border-radius:12px}
-#cameraBox{position:relative;display:none;overflow:hidden}
-#cameraBox:after{content:"";position:absolute;inset:15%;border:4px solid #44d36e;border-radius:12px;pointer-events:none}
-#status{padding:14px;border-radius:10px;background:#e8eef7;white-space:pre-wrap;line-height:1.5}
-.ok{background:#d9f7e4!important}
-.err{background:#ffe0e0!important}
-.small{font-size:14px;color:#526a85}
-</style>
-</head>
-<body>
-<main>
-<h1>HÍDRICA – TIPÓN</h1>
-<p class="small">Control de asistencia de estudiantes</p>
-
-<section class="card">
-<h2>Escanear boleto QR</h2>
-<div id="cameraBox">
-<video id="video" autoplay muted playsinline></video>
-</div>
-<canvas id="canvas" style="display:none"></canvas>
-<button id="start" onclick="startCamera()">Abrir cámara y escanear</button>
-<button class="secondary" onclick="stopCamera()">Cerrar cámara</button>
-<p id="status">Presiona «Abrir cámara y escanear».</p>
-</section>
-
-<section class="card">
-<h2>Código del estudiante</h2>
-<p class="small">Al reconocer el QR, aparecerá aquí.</p>
-<input id="codigo" placeholder="HID-...-IDA o HID-...-VUELTA" autocomplete="off">
-<button onclick="continuar()">Continuar a registro</button>
-<button class="secondary" onclick="verResumen()">Ver resumen</button>
-</section>
-</main>
-
-<script>
-const APP_URL =
-'https://script.google.com/macros/s/AKfycbwprYOsJB2mwG7RWAkysyZg0CCdVyMKNQje8VKlBpQNuJrr51-hJvj4aZP29ifTtVISFg/exec';
-
-const $ = id => document.getElementById(id);
-let stream = null;
-let running = false;
-let frameId = null;
-let lastScan = 0;
-
-function mensaje(texto,tipo=''){
- const e=$('status');
- e.textContent=texto;
- e.className=tipo;
-}
-
-function validar(c){
- return /^HID-[A-F0-9]{16}-(IDA|VUELTA)$/.test(c);
-}
-
-async function startCamera(){
- if(running)return;
- if(typeof jsQR!=='function'){
-  mensaje('No se cargó el lector QR. Revisa Internet.','err');
-  return;
- }
- try{
-  $('codigo').value='';
-  stream=await navigator.mediaDevices.getUserMedia({
-   audio:false,
-   video:{
-    facingMode:{ideal:'environment'},
-    width:{ideal:1280},
-    height:{ideal:720}
-   }
-  });
-
-  const video=$('video');
-  video.srcObject=stream;
-  await video.play();
-  running=true;
-  lastScan=0;
-  $('cameraBox').style.display='block';
-  mensaje('Cámara activa. Enfoca un solo QR de IDA o VUELTA.');
-  frameId=requestAnimationFrame(leerQR);
- }catch(e){
-  mensaje('Error de cámara: '+e.message,'err');
-  stopCamera();
- }
-}
-
-function leerQR(tiempo){
- if(!running)return;
- frameId=requestAnimationFrame(leerQR);
- if(tiempo-lastScan<100)return;
- lastScan=tiempo;
-
- const video=$('video');
- if(video.readyState<2 || !video.videoWidth)return;
-
- const canvas=$('canvas');
- const ctx=canvas.getContext('2d',{willReadFrequently:true});
- canvas.width=video.videoWidth;
- canvas.height=video.videoHeight;
- ctx.drawImage(video,0,0,canvas.width,canvas.height);
-
- const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
- const result=jsQR(pixels.data,canvas.width,canvas.height,{
-  inversionAttempts:'attemptBoth'
- });
-
- if(!result)return;
-
- const codigo=result.data.trim().toUpperCase();
-
- if(!validar(codigo)){
-  mensaje('Se detectó un QR, pero no es un boleto HÍDRICA válido.','err');
-  return;
- }
-
- $('codigo').value=codigo;
- mensaje('QR LEÍDO CORRECTAMENTE: '+codigo+
- '\nAhora presiona «Continuar a registro».','ok');
- stopCamera();
-}
-
-function stopCamera(){
- running=false;
- if(frameId!==null){
-  cancelAnimationFrame(frameId);
-  frameId=null;
- }
- if(stream){
-  stream.getTracks().forEach(t=>t.stop());
-  stream=null;
- }
- $('video').srcObject=null;
- $('cameraBox').style.display='none';
-}
-
-function continuar(){
- const codigo=$('codigo').value.trim().toUpperCase();
- if(!validar(codigo)){
-  mensaje('Primero escanea un QR válido de HÍDRICA.','err');
-  return;
- }
- window.location.href=APP_URL+'?codigo='+encodeURIComponent(codigo);
-}
-
-function verResumen(){
- window.location.href=APP_URL;
-}
-</script>
-</body>
-</html>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HÍDRICA · Escáner rápido</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>*{box-sizing:border-box}body{margin:0;background:#eaf2fc;color:#102b50;font-family:system-ui,Arial}main{max-width:560px;margin:auto;padding:16px}h1{margin-bottom:4px}.card{background:white;padding:18px;margin:15px 0;border-radius:16px;box-shadow:0 3px 16px #19385814}button,input{width:100%;padding:14px;border-radius:9px;font-size:16px;margin:7px 0}button{border:0;background:#0647ad;color:white;font-weight:700}button:disabled{opacity:.5}input{border:1px solid #b5c8dd}.secondary{background:#365775}.note{color:#516985;font-size:14px}#estado{white-space:pre-wrap;background:#e8eef8;border-radius:9px;padding:13px}#estado.ok{background:#daf6e2}#estado.bad{background:#ffe0de}#reader{width:100%;overflow:hidden}#resumen{white-space:pre-wrap;line-height:1.6}iframe{width:1px;height:1px;position:absolute;left:-9999px;border:0}</style></head><body><main>
+<h1>HÍDRICA · TIPÓN</h1><p class="note">Escáner rápido para encargados · IDA / VUELTA</p>
+<section class="card"><h2>1. Acceso del encargado</h2><input id="pin" type="password" placeholder="PIN compartido" autocomplete="off"><button id="entrar" onclick="entrar()">Conectar y verificar PIN</button><button class="secondary" onclick="salir()">Cerrar sesión</button><p class="note" id="conexion">Conectando con Google Sheets…</p></section>
+<section class="card"><h2>2. Escaneo continuo</h2><div id="reader"></div><button id="abrir" onclick="abrirCamara()" disabled>Abrir cámara y escanear</button><button class="secondary" onclick="cerrarCamara()">Cerrar cámara</button><p id="estado" role="status" aria-live="polite">Primero verifica el PIN.</p><p class="note">Cada QR válido se registra automáticamente. Espera la confirmación antes de pasar al siguiente boleto.</p></section>
+<section class="card"><h2>3. Resumen de asistencia</h2><button id="ver" onclick="verResumen()" disabled>Actualizar resumen</button><div id="resumen">Sin consultar.</div></section>
+<iframe id="puente" title="Conexión HÍDRICA" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</main><script>
+'use strict';
+const APP='https://script.google.com/macros/s/AKfycbwprYOsJB2mwG7RWAkysyZg0CCdVyMKNQje8VKlBpQNuJrr51-hJvj4aZP29ifTtVISFg/exec';
+const ORIGEN='https://76140946-star.github.io';
+let listo=false,autorizado=false,pin='',seq=0,pendientes=new Map(),scanner=null,abriendo=false,procesando=false,ultimoCodigo='',ultimoMomento=0;
+const $=id=>document.getElementById(id);
+function aviso(t,cl=''){$('estado').textContent=t;$('estado').className=cl;}
+function controles(){ $('abrir').disabled=!autorizado||!listo; $('ver').disabled=!autorizado||!listo; }
+$('puente').src=APP+'?bridge=1';
+window.addEventListener('message',e=>{
+  if(e.origin!=='https://script.googleusercontent.com' && e.origin!=='https://script.google.com')return;
+  if(e.source!==$('puente').contentWindow)return;
+  const m=e.data;if(!m||m.hidrica!==true)return;
+  if(m.tipo==='listo'){listo=true;$('conexion').textContent='Conexión disponible. Introduce el PIN.';controles();return;}
+  const p=pendientes.get(m.id);if(!p)return;pendientes.delete(m.id);clearTimeout(p.timer);
+  if(m.tipo==='ok')p.resolve(m.datos);else p.reject(new Error(String(m.datos||'Error desconocido')));
+});
+function llamar(tipo,codigo){return new Promise((resolve,reject)=>{
+  if(!listo){reject(new Error('No se conectó el panel de Google. Comprueba permisos de cookies y acceso.'));return;}
+  const id=++seq,timer=setTimeout(()=>{pendientes.delete(id);reject(new Error('Sin respuesta de Google Sheets. No vuelvas a escanear hasta comprobar el resumen.'));},25000);
+  pendientes.set(id,{resolve,reject,timer});$('puente').contentWindow.postMessage({hidrica:true,id,tipo,pin,codigo},'*');
+});}
+async function entrar(){if(!listo){aviso('Aún no se conecta con Google. Abre el panel de Google en otra pestaña y comprueba que iniciaste sesión.','bad');return;}
+  const nuevo=$('pin').value.trim();if(!nuevo){aviso('Introduce el PIN.','bad');return;}pin=nuevo;
+  $('entrar').disabled=true;try{const r=await llamar('resumen');autorizado=true;$('pin').value='';$('conexion').textContent='PIN verificado · Sesión activa';mostrarResumen(r);aviso('Acceso correcto. Abre la cámara.','ok');}
+  catch(e){autorizado=false;pin='';aviso('No se pudo validar el PIN: '+e.message,'bad');}finally{$('entrar').disabled=false;controles();}}
+function mostrarResumen(r){$('resumen').textContent='Total: '+r.total+' | IDA: '+r.ida+' | VUELTA: '+r.vuelta+' | Sin retornar: '+(r.pendientesRetorno||[]).length;}
+async function verResumen(){if(!autorizado)return;try{mostrarResumen(await llamar('resumen'));}catch(e){aviso('Error de resumen: '+e.message,'bad');}}
+async function abrirCamara(){if(!autorizado||scanner||abriendo)return;if(typeof Html5Qrcode==='undefined'){aviso('No cargó el lector QR. Revisa Internet.','bad');return;}abriendo=true;
+ try{scanner=new Html5Qrcode('reader');await scanner.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>({width:Math.max(100,Math.min(240,w-24)),height:Math.max(100,Math.min(240,h-24))})},leer,()=>{});aviso('Cámara activa. Enfoca un QR de IDA o VUELTA.','ok');}
+ catch(e){scanner=null;aviso('No se pudo abrir la cámara: '+e.message,'bad');}finally{abriendo=false;}}
+async function leer(valor){if(procesando||!autorizado)return;const codigo=String(valor||'').trim().toUpperCase();if(!/^HID-[A-F0-9]{16}-(IDA|VUELTA)$/.test(codigo))return;
+ const ahora=Date.now();if(codigo===ultimoCodigo&&ahora-ultimoMomento<4000)return;
+ procesando=true;ultimoCodigo=codigo;ultimoMomento=ahora;aviso('Registrando '+codigo.slice(-6)+'… Espera.');
+ try{const r=await llamar('registrar',codigo);if(r.ok){aviso('✓ '+r.nombre+' · '+r.tipo+' registrada correctamente.\nListo para el siguiente estudiante.','ok');}
+ else{aviso('⚠ '+r.nombre+' · '+r.tipo+': '+r.mensaje,'bad');}
+ await verResumen();}catch(e){aviso('NO CONFIRMADO: '+e.message+'\nConsulta el resumen antes de repetir el escaneo.','bad');}
+ finally{setTimeout(()=>{procesando=false;},1800);}}
+async function cerrarCamara(){if(!scanner)return;const s=scanner;scanner=null;try{if(s.isScanning)await s.stop();s.clear();}catch(e){console.warn(e);}}
+async function salir(){await cerrarCamara();pin='';autorizado=false;procesando=false;$('pin').value='';$('conexion').textContent='Sesión cerrada';$('resumen').textContent='Sin consultar.';aviso('Sesión cerrada.');controles();}
+</script></body></html>
