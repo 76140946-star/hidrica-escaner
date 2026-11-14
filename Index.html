@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    *{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;background:#eff5fc;color:#102c54}
+    main{max-width:580px;margin:auto;padding:18px}h1{margin:12px 0 5px;font-size:32px}h2{font-size:22px}
+    .muted{color:#526a85;font-size:14px}.card{background:white;padding:18px;border-radius:16px;margin:14px 0;box-shadow:0 2px 12px #17345513}
+    input,button{width:100%;padding:14px;margin:7px 0;border-radius:9px;font-size:16px}
+    input{border:1px solid #b7cbe3}button{border:0;background:#0757ac;color:white;font-weight:bold;cursor:pointer}
+    button.secondary{background:#365271}button:disabled{opacity:.55}#reader{width:100%;overflow:hidden}
+    #message{white-space:pre-wrap;padding:12px;border-radius:9px;display:none}.ok{background:#dcf6e3}.err{background:#ffe0df}
+    #stats{white-space:pre-wrap;line-height:1.6}li{padding:4px 0}
+  </style>
+</head>
+<body><main>
+  <h1>HÍDRICA · TIPÓN</h1><p class="muted">Control de viaje: IDA / VUELTA · Solo encargados autorizados</p>
+  <section class="card"><label for="pin">PIN de encargado</label><input id="pin" type="password" placeholder="PIN de acceso" autocomplete="off">
+    <button class="secondary" onclick="verResumen()">Ver resumen</button><div id="stats"></div>
+  </section>
+  <section class="card"><h2>Escanear boleto</h2><div id="reader"></div>
+    <button id="start" onclick="abrirCamara()">Abrir cámara y escanear</button>
+    <button class="secondary" onclick="cerrarCamara()">Cerrar cámara</button>
+    <p class="muted">Si usas el escáner móvil independiente, el código aparecerá aquí. También puedes pegarlo manualmente:</p>
+    <input id="codigo" placeholder="HID-...-IDA o HID-...-VUELTA" autocapitalize="characters">
+    <button id="submit" onclick="registrarCodigo()">Registrar código</button>
+    <div id="message" role="status" aria-live="polite"></div>
+  </section>
+  <section class="card"><h2>Pendientes de retorno</h2><ul id="pendientes"></ul></section>
+</main>
+<script>
+  let scanner = null, ocupado = false, ultimo = '';
+  // Acepta el QR leído por el escáner móvil externo, sin registrar sin confirmación.
+  window.addEventListener('DOMContentLoaded', () => {
+    const codigo = new URLSearchParams(location.search).get('codigo');
+    if (codigo && /^HID-[A-F0-9]{16}-(IDA|VUELTA)$/i.test(codigo)) {
+      document.getElementById('codigo').value = codigo.toUpperCase();
+      aviso('Boleto recibido. Introduce el PIN y pulsa Registrar código.', true);
+      document.getElementById('pin').focus();
+    }
+  });
+  const el = id => document.getElementById(id);
+  function aviso(s, correcto=false){let m=el('message');m.style.display='block';m.className=correcto?'ok':'err';m.textContent=s;}
+  function pin(){return el('pin').value.trim();}
+  function error(e){aviso(e && e.message ? e.message : String(e || 'Error desconocido'));}
+  function verResumen(){
+    if(!pin()) return aviso('Introduce el PIN.');
+    google.script.run.withSuccessHandler(d=>{
+      el('stats').textContent=`Total: ${d.total} | IDA: ${d.ida} | VUELTA: ${d.vuelta} | Sin retornar: ${d.pendientesRetorno.length}`;
+      el('pendientes').replaceChildren();
+      d.pendientesRetorno.forEach(x=>{const li=document.createElement('li');li.textContent=x.numero+' - '+x.nombre;el('pendientes').appendChild(li);});
+      aviso('Resumen actualizado.',true);
+    }).withFailureHandler(error).resumen(pin());
+  }
+  function registrarCodigo(){registrar(el('codigo').value.trim());}
+  function registrar(codigo){
+    if(ocupado)return;
+    if(!pin())return aviso('Introduce el PIN.');
+    if(!codigo)return aviso('Escanea o escribe un código.');
+    ocupado=true;el('submit').disabled=true;
+    google.script.run.withSuccessHandler(d=>{
+      ocupado=false;el('submit').disabled=false;
+      aviso(`${d.nombre}\n${d.tipo}: ${d.mensaje}`,d.ok);
+      if(d.ok){el('codigo').value='';verResumen();}
+    }).withFailureHandler(e=>{ocupado=false;el('submit').disabled=false;error(e);}).registrar(pin(),codigo);
+  }
+  async function abrirCamara(){
+    if(scanner)return;
+    if(!pin())return aviso('Introduce el PIN antes de escanear.');
+    if(typeof Html5Qrcode==='undefined')return aviso('No se cargó la biblioteca del lector QR. Comprueba la conexión.');
+    if(!window.isSecureContext)return aviso('La cámara necesita una página HTTPS segura.');
+    try{
+      scanner=new Html5Qrcode('reader');
+      await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:230,height:230}},texto=>{
+        if(ocupado||texto===ultimo)return;
+        ultimo=texto;el('codigo').value=texto;registrar(texto);
+        setTimeout(()=>{ultimo='';},3000);
+      },()=>{});
+      aviso('Cámara activa. Enfoca el QR de IDA o VUELTA.',true);
+    }catch(e){scanner=null;error(e);}
+  }
+  async function cerrarCamara(){
+    if(!scanner)return;
+    try{await scanner.stop();scanner.clear();}catch(e){error(e);}finally{scanner=null;}
+  }
+</script></body></html>
